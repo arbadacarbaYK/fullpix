@@ -68,16 +68,15 @@ def handle_photo(update: Update, context: CallbackContext) -> None:
 def handle_button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     chat_id = query.message.chat_id
-    print(f"Button pressed in chat {chat_id}, data: {query.data}")
+    print(f"Specific handler - Button pressed in chat {chat_id}, data: {query.data}")
     
-    query.answer()  # Acknowledge the button press
+    query.answer()
     
     if chat_id not in pending_photos:
         print(f"No pending photo for chat {chat_id}")
         query.edit_message_text("No photo to process. Please send a new photo.")
         return
     
-    # Extract pixelation factor from callback data
     try:
         pixelation_factor = float(query.data.split('_')[1])
         print(f"Parsed pixelation factor: {pixelation_factor}")
@@ -95,8 +94,6 @@ def handle_button(update: Update, context: CallbackContext) -> None:
             with open(output_path, 'rb') as f:
                 context.bot.send_photo(chat_id=chat_id, photo=f)
             print("Photo sent successfully")
-            
-            # Clean up
             if os.path.exists(input_path):
                 os.remove(input_path)
                 print(f"Removed input file: {input_path}")
@@ -104,8 +101,6 @@ def handle_button(update: Update, context: CallbackContext) -> None:
                 os.remove(output_path)
                 print(f"Removed output file: {output_path}")
             del pending_photos[chat_id]
-            print(f"Removed chat {chat_id} from pending_photos")
-            
             query.edit_message_text("Image processed!")
         except Exception as e:
             print(f"Error sending photo: {str(e)}")
@@ -114,13 +109,16 @@ def handle_button(update: Update, context: CallbackContext) -> None:
         print("Image processing failed")
         query.edit_message_text("Failed to process image.")
     
-    # Clean up in case of failure
     if chat_id in pending_photos:
         if os.path.exists(input_path):
             os.remove(input_path)
-            print(f"Cleaned up input file: {input_path}")
         del pending_photos[chat_id]
-        print(f"Removed chat {chat_id} from pending_photos after failure")
+
+def handle_all_callbacks(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    chat_id = query.message.chat_id
+    print(f"Catch-all handler - Received callback in chat {chat_id}, data: {query.data}")
+    query.answer()
 
 def main():
     if not TOKEN:
@@ -132,10 +130,11 @@ def main():
     
     # Register handlers
     dispatcher.add_handler(MessageHandler(Filters.photo, handle_photo))
-    dispatcher.add_handler(CallbackQueryHandler(handle_button, pattern=r'^pixelate_'))  # Using raw string for regex
+    dispatcher.add_handler(CallbackQueryHandler(handle_button, pattern=r'^pixelate_'))
+    dispatcher.add_handler(CallbackQueryHandler(handle_all_callbacks))  # Catch-all handler
     
     print("Bot starting...")
-    print("Handlers registered: photo handler and callback query handler")
+    print("Handlers registered: photo handler, specific callback handler, catch-all callback handler")
     updater.start_polling()
     updater.idle()
 
