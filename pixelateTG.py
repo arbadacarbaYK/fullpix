@@ -19,7 +19,7 @@ import psutil
 import glob
 import logging.handlers
 from gif_processor import process_telegram_gif
-from constants import PIXELATION_FACTOR, detect_heads
+from constants import PIXELATION_FACTOR
 from gif_processor import GifProcessor
 
 # Configure DNS settings
@@ -44,24 +44,6 @@ TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 MAX_THREADS = 15
 RESIZE_FACTOR = 2.0
 executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
-
-# Cache for overlay files
-overlay_cache = {}
-
-overlay_image_cache = {}
-
-overlay_adjustments = {
-    'clown': {'x_offset': -0.15, 'y_offset': -0.25, 'size_factor': 1.66},
-    'liotta': {'x_offset': -0.12, 'y_offset': -0.2, 'size_factor': 1.5},
-    'skull': {'x_offset': -0.25, 'y_offset': -0.5, 'size_factor': 1.65},
-    'cat': {'x_offset': -0.15, 'y_offset': -0.45, 'size_factor': 1.5}, 
-    'pepe': {'x_offset': -0.05, 'y_offset': -0.2, 'size_factor': 1.4},
-    'chad': {'x_offset': -0.15, 'y_offset': -0.15, 'size_factor': 1.6}  
-}
-
-face_detection_cache = {}
-
-rotated_overlay_cache = {}
 
 # Dictionary to store active sessions
 active_sessions = {}
@@ -112,284 +94,29 @@ def start(update: Update, context: CallbackContext) -> None:
     """Handle /start command"""
     update.message.reply_text("Send me a photo to get started!")
 
-def get_overlay_files(overlay_type):
-    """Get all overlay files for a specific type"""
-    # Look for overlays directly in the root directory
-    overlay_files = glob.glob(f"{overlay_type}_*.png")
-    
-    if not overlay_files:
-        logger.error(f"No overlay files found matching pattern: {overlay_type}_*.png")
-        logger.error(f"Searched in directory: {os.getcwd()}")
-    
-    return overlay_files
-
-def get_cached_overlay(overlay_path):
-    if overlay_path in overlay_image_cache:
-        return overlay_image_cache[overlay_path].copy()
-    
-    overlay_img = cv2.imread(overlay_path, cv2.IMREAD_UNCHANGED)
-    if overlay_img is not None:
-        overlay_image_cache[overlay_path] = overlay_img
-        logger.debug(f"Cached overlay image: {overlay_path}")
-    return overlay_img.copy() if overlay_img is not None else None
-
 def get_id_prefix(update):
     """Generate a consistent ID prefix for a user"""
     return f"user_{update.effective_user.id}"
 
-def process_image(photo_path, output_path, effect_type, selected_overlay=None, faces=None):
+def process_image(photo_path, output_path):
     try:
         image = cv2.imread(photo_path)
         if image is None:
             logger.error(f"Failed to read image: {photo_path}")
             return False
-            
-        height, width = image.shape[:2]
         
-        if faces is None:
-            faces = detect_heads(image)
-        
-        output = image.copy()
-        
-        # Ensure an overlay is selected if effect_type is not 'pixelate'
-        if effect_type != 'pixelate' and not selected_overlay:
-            overlay_files = glob.glob(f"{effect_type}_*.png")
-            if overlay_files:
-                selected_overlay = random.choice(overlay_files)
-                logger.info(f"Selected overlay: {selected_overlay}")
-            else:
-                logger.error("No overlay files found for the selected effect type.")
-                return False
-        
-        for face in faces:
-            x, y, w, h = face['rect']
-            angle = face['angle']
-            
-            if effect_type == 'pixelate':
-                face_roi = image[y:y+h, x:x+w]
-                small = cv2.resize(face_roi, (0, 0), fx=1.0/PIXELATION_FACTOR, fy=1.0/PIXELATION_FACTOR)
-                pixelated_face = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-                output[y:y+h, x:x+w] = pixelated_face
-            else:
-                overlay_img = cv2.imread(selected_overlay, cv2.IMREAD_UNCHANGED)
-                if overlay_img is None:
-                    logger.error(f"Failed to read overlay: {selected_overlay}")
-                    continue
-                
-                adjust = overlay_adjustments.get(effect_type, {'x_offset': 0, 'y_offset': 0, 'size_factor': 1.0})
-                
-                overlay_width = int(w * adjust['size_factor'])
-                overlay_height = int(h * adjust['size_factor'])
-                x_pos = int(x + w * adjust['x_offset'])
-                y_pos = int(y + h * adjust['y_offset'])
-                
-                overlay_resized = cv2.resize(overlay_img, (overlay_width, overlay_height))
-                
-                center = (overlay_width // 2, overlay_height // 2)
-                M = cv2.getRotationMatrix2D(center, angle, 1.0)
-                rotated_overlay = cv2.warpAffine(overlay_resized, M, (overlay_width, overlay_height))
-                
-                roi_x = max(0, x_pos)
-                roi_y = max(0, y_pos)
-                roi_w = min(overlay_width, width - roi_x)
-                roi_h = min(overlay_height, height - roi_y)
-                
-                if roi_w <= 0 or roi_h <= 0:
-                    continue
-                
-                roi = output[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w]
-                overlay_roi = rotated_overlay[0:roi_h, 0:roi_w]
-                
-                if overlay_roi.shape[2] == 4:
-                    alpha = overlay_roi[:, :, 3] / 255.0
-                    for c in range(3):
-                        roi[:, :, c] = roi[:, :, c] * (1 - alpha) + overlay_roi[:, :, c] * alpha
-                else:
-                    output[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w] = overlay_roi
-        
-        cv2.imwrite(output_path, output)
+        # Resize down and back up to pixelate
+        h, w = image.shape[:2]
+        small = cv2.resize(image, (int(w * PIXELATION_FACTOR), int(h * PIXELATION_FACTOR)), interpolation=cv2.INTER_LINEAR)
+        pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        cv2.imwrite(output_path, pixelated)
         return True
-        
+
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
-        logger.error(traceback.format_exc())
         return False
-
-def apply_overlay_to_image(image, overlay, x, y):
-    """Apply an overlay to an image at the specified position"""
-    try:
-        h, w = overlay.shape[:2]
-        img_h, img_w = image.shape[:2]
-        
-        # Calculate the region where the overlay will be placed
-        roi_x = max(0, x)
-        roi_y = max(0, y)
-        roi_w = min(w, img_w - roi_x)
-        roi_h = min(h, img_h - roi_y)
-        
-        if roi_w <= 0 or roi_h <= 0:
-            return
-        
-        # Get the region of interest in the image
-        roi = image[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w]
-        
-        # Get the region of the overlay to use
-        overlay_roi = overlay[0:roi_h, 0:roi_w]
-        
-        # Apply the overlay with alpha blending if it has an alpha channel
-        if overlay_roi.shape[2] == 4:  # With alpha channel
-            alpha = overlay_roi[:, :, 3] / 255.0
-            for c in range(3):  # Apply for each color channel
-                roi[:, :, c] = roi[:, :, c] * (1 - alpha) + overlay_roi[:, :, c] * alpha
-        else:  # No alpha channel
-            image[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w] = overlay_roi
-            
-    except Exception as e:
-        logger.error(f"Error applying overlay: {str(e)}")
-        logger.error(traceback.format_exc())
-
-def get_random_overlay_file(overlay_type):
-    try:
-        overlay_files = get_overlay_files(overlay_type)
-        if not overlay_files:
-            return None
-        return random.choice(overlay_files)
-    except Exception as e:
-        logger.error(f"Error in get_random_overlay_file: {str(e)}")
-        return None
-
-def overlay(input_path, overlay_type, output_path, faces=None):
-    try:
-        logger.debug(f"Starting overlay process for {overlay_type}")
-        
-        # Read input image
-        image = cv2.imread(input_path)
-        if image is None:
-            logger.error(f"Failed to read input image: {input_path}")
-            return False
-            
-        # Only detect faces if not provided
-        if faces is None:
-            faces = detect_heads(image)
-            
-        logger.debug(f"Processing {len(faces)} faces")
-        
-        if len(faces) == 0:
-            logger.error("No faces detected in image")
-            return False
-
-        overlay_files = get_overlay_files(overlay_type)
-        if not overlay_files:
-            logger.error(f"No overlay files found for type: {overlay_type}")
-            return False
-            
-        for face in faces:
-            overlay_file = random.choice(overlay_files)
-            overlay_path = os.path.join(os.getcwd(), overlay_file)
-            overlay_img = cv2.imread(overlay_path, cv2.IMREAD_UNCHANGED)
-            
-            if overlay_img is None:
-                logger.error(f"Failed to read overlay: {overlay_path}")
-                continue
-                
-            rect = face['rect']
-            angle = face['angle']
-            x, y, w, h = rect
-            
-            adjust = overlay_adjustments.get(overlay_type, {
-                'x_offset': 0, 'y_offset': 0, 'size_factor': 1.0
-            })
-            
-            # Calculate size and position
-            overlay_width = int(w * adjust['size_factor'])
-            overlay_height = int(h * adjust['size_factor'])
-            x_pos = int(x + w * adjust['x_offset'])
-            y_pos = int(y + h * adjust['y_offset'])
-            
-            # Resize overlay
-            overlay_resized = cv2.resize(overlay_img, (overlay_width, overlay_height))
-            
-            # Create rotation matrix around center of overlay
-            center = (x_pos + overlay_width//2, y_pos + overlay_height//2)
-            M = cv2.getRotationMatrix2D(center, angle, 1.0)
-            
-            # Create a larger canvas for rotation to prevent cropping
-            canvas = np.zeros((image.shape[0], image.shape[1], 4), dtype=np.uint8)
-            canvas[y_pos:y_pos+overlay_height, x_pos:x_pos+overlay_width] = overlay_resized
-            
-            # Apply rotation
-            rotated_canvas = cv2.warpAffine(canvas, M, (image.shape[1], image.shape[0]))
-            
-            # Blend with original image
-            alpha = rotated_canvas[:, :, 3] / 255.0
-            alpha = np.expand_dims(alpha, axis=-1)
-            overlay_rgb = rotated_canvas[:, :, :3]
-            
-            image = image * (1 - alpha) + overlay_rgb * alpha
-            
-        image = image.astype(np.uint8)
-        cv2.imwrite(output_path, image)
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error in overlay function: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
-
-# Overlay functions
-def clown_overlay(photo_path, output_path):
-    logger.info("Starting clowns overlay")
-    return process_image(photo_path, output_path, 'clown')
-
-def liotta_overlay(photo_path, output_path):
-    logger.info("Starting liotta overlay")
-    return process_image(photo_path, output_path, 'liotta')
-
-def skull_overlay(photo_path, output_path):
-    logger.info("Starting skull overlay")
-    return process_image(photo_path, output_path, 'skull')
-
-def cat_overlay(photo_path, output_path):
-    logger.info("Starting cats overlay")
-    return process_image(photo_path, output_path, 'cat')
-
-def pepe_overlay(photo_path, output_path):
-    logger.info("Starting pepe overlay")
-    return process_image(photo_path, output_path, 'pepe')
-
-def chad_overlay(photo_path, output_path):
-    logger.info("Starting chad overlay")
-    return process_image(photo_path, output_path, 'chad')
-
-def process_gif(gif_path, session_id, id_prefix, bot, action):
-    try:
-        # Get output path first - make sure it has .gif extension
-        processed_gif_path = get_file_path('processed', id_prefix, session_id, f'{action}.gif')
-        
-        # Use the existing process_telegram_gif function
-        success = process_telegram_gif(
-            gif_path,
-            processed_gif_path,
-            process_image,  # This is the same function used for photos
-            action=action   # Pass the action (pixelate/overlay type)
-        )
-        
-        if success and os.path.exists(processed_gif_path):
-            # Verify it's actually a GIF file
-            if os.path.getsize(processed_gif_path) > 0:
-                logger.info(f"Successfully processed GIF: {processed_gif_path}")
-                return processed_gif_path
-            else:
-                logger.error(f"Processed GIF file is empty: {processed_gif_path}")
-        
-        logger.error("Failed to process GIF")
-        return None
-            
-    except Exception as e:
-        logger.error(f"Error in process_gif: {str(e)}")
-        logger.error(traceback.format_exc())
-        return None
-
+           
 def handle_message(update: Update, context: CallbackContext, photo=None) -> None:
     try:
         logger.debug("Function called")
@@ -523,25 +250,6 @@ def button_callback(update: Update, context: CallbackContext) -> None:
         query.answer(f"Processing with {action} effect...")
         query.edit_message_text(f"Processing with {action} effect...")
         
-        # Process the image
-        if is_gif:
-            # Process GIF
-            output_path = process_gif(input_path, session_id, id_prefix, context.bot, action)
-            if output_path and os.path.exists(output_path):
-                # Send the processed GIF without caption
-                with open(output_path, 'rb') as f:
-                    context.bot.send_animation(
-                        chat_id=chat_id,
-                        animation=f
-                    )
-                # Clean up
-                os.remove(output_path)
-                logger.debug(f"Cleaned up {output_path}")
-            else:
-                context.bot.send_message(
-                    chat_id=chat_id,
-                    text="Failed to process GIF. Please try again."
-                )
         else:
             # Process photo
             output_path = get_file_path('processed', id_prefix, session_id, action)
@@ -560,37 +268,6 @@ def button_callback(update: Update, context: CallbackContext) -> None:
                     text="Failed to process image. Please try again."
                 )
                 
-        # Restore the keyboard after processing
-        keyboard = [
-            [
-                InlineKeyboardButton("🧩 Pixelate", callback_data=f"pixelate:{session_id}")
-            ],
-            [
-                InlineKeyboardButton("🤡 Clown", callback_data=f"clown:{session_id}"),
-                InlineKeyboardButton("😎 Liotta", callback_data=f"liotta:{session_id}"),
-                InlineKeyboardButton("💀 Skull", callback_data=f"skull:{session_id}")
-            ],
-            [
-                InlineKeyboardButton("🐱 Cat", callback_data=f"cat:{session_id}"),
-                InlineKeyboardButton("🐸 Pepe", callback_data=f"pepe:{session_id}"),
-                InlineKeyboardButton("👨 Chad", callback_data=f"chad:{session_id}")
-            ],
-            [
-                InlineKeyboardButton("❌ Close", callback_data=f"close:{session_id}")
-            ]
-        ]
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        query.edit_message_text('Choose an effect:', reply_markup=reply_markup)
-        
-    except Exception as e:
-        logger.error(f"Error in button_callback: {str(e)}")
-        logger.error(traceback.format_exc())
-        try:
-            query.answer("An error occurred")
-        except:
-            pass
-
 def get_last_update_id() -> int:
     try:
         with open('pixelbot_last_update.txt', 'r') as f:
@@ -616,37 +293,12 @@ def cleanup_old_files():
                     except Exception as e:
                         logger.error(f"Failed to remove {filepath}: {e}")
 
-def get_rotated_overlay(overlay_img, angle, size):
-    """Cache and return rotated overlays"""
-    cache_key = f"{id(overlay_img)}_{angle}_{size}"
-    if cache_key in rotated_overlay_cache:
-        return rotated_overlay_cache[cache_key]
-        
-    rotated = cv2.warpAffine(
-        overlay_img,
-        cv2.getRotationMatrix2D((size[0]//2, size[1]//2), angle, 1.0),
-        size
-    )
-    rotated_overlay_cache[cache_key] = rotated
-    return rotated
-
 def photo_command(update: Update, context: CallbackContext) -> None:
     # Check if this is a reply to a photo
     if not update.message.reply_to_message or not update.message.reply_to_message.photo:
         return
     # Process the replied-to photo
     handle_message(update, context, photo=update.message.reply_to_message)
-
-def help_command(update: Update, context: CallbackContext) -> None:
-    """Send a message when the command /help is issued."""
-    help_text = (
-        "Send me a photo or GIF with faces, and I'll pixelate them or add fun overlays!\n\n"
-        "Commands:\n"
-        "/start - Start the bot\n"
-        "/help - Show this help message\n\n"
-        "Just send a photo or GIF with faces, and I'll process it!"
-    )
-    update.message.reply_text(help_text)
 
 def handle_photo(update: Update, context: CallbackContext) -> None:
     """Handle photos sent to the bot"""
