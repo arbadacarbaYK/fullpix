@@ -13,6 +13,7 @@ TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 pending_photos = {}
 
 def process_image(photo_path, output_path, pixelation_factor):
+    print(f"Processing image: {photo_path} with factor {pixelation_factor}")
     try:
         image = cv2.imread(photo_path)
         if image is None:
@@ -38,6 +39,7 @@ def build_keyboard():
         [InlineKeyboardButton("very rough", callback_data="pixelate_0.08")],
         [InlineKeyboardButton("distorted", callback_data="pixelate_0.06")]
     ]
+    print("Building keyboard with callback data: pixelate_0.2, pixelate_0.15, etc.")
     return InlineKeyboardMarkup(keyboard)
 
 def handle_photo(update: Update, context: CallbackContext) -> None:
@@ -128,10 +130,12 @@ def main():
     updater = Updater(TOKEN, use_context=True)
     dispatcher = updater.dispatcher
     
+    # Register handlers
     dispatcher.add_handler(MessageHandler(Filters.photo, handle_photo))
-    dispatcher.add_handler(CallbackQueryHandler(handle_button, pattern='^pixelate_'))
+    dispatcher.add_handler(CallbackQueryHandler(handle_button, pattern=r'^pixelate_'))  # Using raw string for regex
     
     print("Bot starting...")
+    print("Handlers registered: photo handler and callback query handler")
     updater.start_polling()
     updater.idle()
 
