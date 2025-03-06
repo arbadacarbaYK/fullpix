@@ -1,23 +1,20 @@
 import os
 import cv2
 import numpy as np
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 
-# Load environment variables
-load_dotenv()
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-DEFAULT_PIXELATION_FACTOR = float(os.getenv('PIXELATION_FACTOR', 0.1))  # Default value if not in .env
-
 # Store pending photos in a dictionary {chat_id: file_path}
 pending_photos = {}
+
+# Default pixelation factor is now defined here
+DEFAULT_PIXELATION_FACTOR = 0.1
 
 def process_image(photo_path, output_path, pixelation_factor):
     try:
         image = cv2.imread(photo_path)
         if image is None:
-            logger.error(f"Failed to read image: {photo_path}")
+            print(f"Failed to read image: {photo_path}")
             return False
         
         h, w = image.shape[:2]
@@ -27,7 +24,7 @@ def process_image(photo_path, output_path, pixelation_factor):
         cv2.imwrite(output_path, pixelated)
         return True
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
+        print(f"Error processing image: {str(e)}")
         return False
 
 def build_keyboard():
@@ -60,6 +57,8 @@ def handle_photo(update: Update, context: CallbackContext) -> None:
 
 def handle_button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
+    query.answer()  # Acknowledge the button press
+    
     chat_id = query.message.chat_id
     
     if chat_id not in pending_photos:
@@ -67,30 +66,41 @@ def handle_button(update: Update, context: CallbackContext) -> None:
         return
     
     # Extract pixelation factor from callback data
-    pixelation_factor = float(query.data.split('_')[1])
+    try:
+        pixelation_factor = float(query.data.split('_')[1])
+    except (IndexError, ValueError):
+        query.edit_message_text("Invalid pixelation factor.")
+        return
     
     input_path = pending_photos[chat_id]
     output_path = f"pixelated_{chat_id}.jpg"
     
     if process_image(input_path, output_path, pixelation_factor):
-        with open(output_path, 'rb') as f:
-            context.bot.send_photo(chat_id=chat_id, photo=f)
-        
-        # Clean up
-        os.remove(input_path)
-        os.remove(output_path)
-        del pending_photos[chat_id]
-        
-        # Remove the keyboard
-        query.edit_message_text("Image processed!")
+        try:
+            with open(output_path, 'rb') as f:
+                context.bot.send_photo(chat_id=chat_id, photo=f)
+            
+            # Clean up
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            del pending_photos[chat_id]
+            
+            query.edit_message_text("Image processed!")
+        except Exception as e:
+            query.edit_message_text(f"Failed to send processed image: {str(e)}")
     else:
         query.edit_message_text("Failed to process image.")
+        
+    # Clean up in case of failure
+    if chat_id in pending_photos:
         if os.path.exists(input_path):
             os.remove(input_path)
         del pending_photos[chat_id]
 
 def main():
-    updater = Updater(TOKEN, use_context=True)
+    updater = Updater("YOUR_TELEGRAM_BOT_TOKEN_HERE", use_context=True)  # Replace with your token
     dispatcher = updater.dispatcher
     
     dispatcher.add_handler(MessageHandler(Filters.photo, handle_photo))
