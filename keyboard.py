@@ -99,6 +99,9 @@ def handle_button(update: Update, context: CallbackContext) -> None:
                 os.remove(input_path)
             del pending_photos[chat_id]
 
+def log_all_updates(update: Update, context: CallbackContext) -> None:
+    print(f"Raw update received: {update.to_dict()}")
+
 def main():
     if not TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN not found in .env")
@@ -107,11 +110,14 @@ def main():
     updater = Updater(TOKEN, use_context=True)
     dispatcher = updater.dispatcher
     
+    # Register raw update logger first
+    dispatcher.add_handler(MessageHandler(Filters.all, log_all_updates), group=-1)
+    # Then specific handlers
     dispatcher.add_handler(MessageHandler(Filters.photo, handle_photo))
     dispatcher.add_handler(CallbackQueryHandler(handle_button, pattern='pixelate_'))
     
     print("Bot starting...")
-    print("Handlers registered: photo handler, callback handler")
+    print("Handlers registered: raw update logger, photo handler, callback handler")
     updater.start_polling()
     updater.idle()
 
