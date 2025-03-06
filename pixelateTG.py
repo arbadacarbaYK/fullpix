@@ -4,6 +4,7 @@ import numpy as np
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Updater, MessageHandler, Filters, CallbackContext
+from constants import PIXELATION_FACTOR
 
 # Load environment variables
 load_dotenv()
@@ -14,16 +15,18 @@ def process_image(photo_path, output_path):
     try:
         image = cv2.imread(photo_path)
         if image is None:
+            logger.error(f"Failed to read image: {photo_path}")
             return False
         
+        # Apply pixelation to the full image
         h, w = image.shape[:2]
         small = cv2.resize(image, (int(w * PIXELATION_FACTOR), int(h * PIXELATION_FACTOR)), interpolation=cv2.INTER_LINEAR)
         pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-        
+
         cv2.imwrite(output_path, pixelated)
         return True
     except Exception as e:
-        print(f"Error processing image: {str(e)}")
+        logger.error(f"Error processing image: {str(e)}")
         return False
 
 def handle_photo(update: Update, context: CallbackContext) -> None:
