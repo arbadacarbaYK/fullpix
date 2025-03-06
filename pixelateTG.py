@@ -95,11 +95,11 @@ def handle_photo(update: Update, context: CallbackContext) -> None:
     log_event(f"Downloaded photo to {input_path}")
     
     keyboard = [[level.replace('_', ' ').title()] for level in PIXELATION_LEVELS.keys()]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
     
     context.user_data['photo_path'] = input_path
     update.message.reply_text(
-        "Choose your pixelation level:",
+        "Choose your pixelation level:\n(You can try different levels with the same photo)",
         reply_markup=reply_markup
     )
     log_event(f"Sent pixelation options to user {user_id}")
@@ -114,7 +114,12 @@ def handle_text(update: Update, context: CallbackContext) -> None:
     
     if text not in PIXELATION_LEVELS:
         log_event(f"Invalid pixelation level received from user {user_id}: {text}")
-        update.message.reply_text("Please select a valid pixelation level from the keyboard.")
+        update.message.reply_text(
+            "Please select a valid pixelation level from the keyboard.",
+            reply_markup=ReplyKeyboardMarkup([[level.replace('_', ' ').title()] for level in PIXELATION_LEVELS.keys()], 
+                                           resize_keyboard=True, 
+                                           persistent=True)
+        )
         return
     
     if 'photo_path' not in context.user_data:
@@ -129,10 +134,23 @@ def handle_text(update: Update, context: CallbackContext) -> None:
     log_event(f"Processing image for user {user_id} with level {text}")
     if process_image(input_path, output_path, pixelation_factor):
         with open(output_path, 'rb') as f:
-            update.message.reply_photo(photo=f)
+            # Keep the keyboard when sending the photo
+            keyboard = [[level.replace('_', ' ').title()] for level in PIXELATION_LEVELS.keys()]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
+            
+            update.message.reply_photo(
+                photo=f,
+                caption="Try another pixelation level or send a new photo!",
+                reply_markup=reply_markup
+            )
             log_event(f"Sent pixelated image to user {user_id}")
     else:
-        update.message.reply_text("Sorry, failed to process the image. Please try again.")
+        update.message.reply_text(
+            "Sorry, failed to process the image. Please try again.",
+            reply_markup=ReplyKeyboardMarkup([[level.replace('_', ' ').title()] for level in PIXELATION_LEVELS.keys()],
+                                           resize_keyboard=True,
+                                           persistent=True)
+        )
         log_event(f"Failed to process image for user {user_id}")
 
 def main():
