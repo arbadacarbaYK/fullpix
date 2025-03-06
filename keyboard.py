@@ -3,8 +3,7 @@ import cv2
 import numpy as np
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, MessageHandler, CallbackQueryHandler, ContextTypes
-from telegram.ext.filters import MessageFilter, PHOTO
+from telegram.ext import Updater, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 
 # Load environment variables
 load_dotenv()
@@ -39,7 +38,7 @@ def build_keyboard():
     print("Building keyboard with callback data: pixelate_0.2, pixelate_0.15, etc.")
     return InlineKeyboardMarkup(keyboard)
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def handle_photo(update: Update, context: CallbackContext) -> None:
     if update.effective_chat.type != "private":
         print("Ignoring non-private chat")
         return
@@ -47,25 +46,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     print(f"Received photo from chat {chat_id}")
     
     photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
+    file = context.bot.get_file(photo.file_id)
     input_path = f"photo_{chat_id}.jpg"
-    await file.download_to_drive(input_path)
+    file.download(input_path)
     print(f"Photo downloaded to {input_path}")
     
     pending_photos[chat_id] = input_path
     reply_markup = build_keyboard()
-    await update.message.reply_text("Choose pixelation level:", reply_markup=reply_markup)
+    update.message.reply_text("Choose pixelation level:", reply_markup=reply_markup)
     print("Keyboard sent")
 
-async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def handle_button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     chat_id = query.message.chat_id
     print(f"Button pressed in chat {chat_id}, data: {query.data}")
-    await query.answer()
+    query.answer()
     
     if chat_id not in pending_photos:
         print(f"No pending photo for chat {chat_id}")
-        await query.edit_message_text("No photo to process. Please send a new photo.")
+        query.edit_message_text("No photo to process. Please send a new photo.")
         return
     
     try:
@@ -73,7 +72,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         print(f"Parsed pixelation factor: {pixelation_factor}")
     except (IndexError, ValueError) as e:
         print(f"Error parsing callback data: {str(e)}")
-        await query.edit_message_text("Invalid pixelation factor.")
+        query.edit_message_text("Invalid pixelation factor.")
         return
     
     input_path = pending_photos[chat_id]
@@ -82,44 +81,39 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if process_image(input_path, output_path, pixelation_factor):
         try:
             with open(output_path, 'rb') as f:
-                await context.bot.send_photo(chat_id=chat_id, photo=f)
+                context.bot.send_photo(chat_id=chat_id, photo=f)
             print("Photo sent successfully")
             if os.path.exists(input_path):
                 os.remove(input_path)
             if os.path.exists(output_path):
                 os.remove(output_path)
             del pending_photos[chat_id]
-            await query.edit_message_text("Image processed!")
+            query.edit_message_text("Image processed!")
         except Exception as e:
             print(f"Error sending photo: {str(e)}")
-            await query.edit_message_text(f"Failed to send processed image: {str(e)}")
+            query.edit_message_text(f"Failed to send processed image: {str(e)}")
     else:
-        await query.edit_message_text("Failed to process image.")
+        query.edit_message_text("Failed to process image.")
         if chat_id in pending_photos:
             if os.path.exists(input_path):
                 os.remove(input_path)
             del pending_photos[chat_id]
-
-async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print(f"Raw update received: {update.to_dict()}")
 
 def main():
     if not TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN not found in .env")
         return
     
-    # Use Application instead of Updater for v20+
-    application = Application.builder().token(TOKEN).build()
+    updater = Updater(TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
     
-    # Register handlers
-    application.add_handler(MessageHandler(PHOTO, handle_photo))
-    application.add_handler(CallbackQueryHandler(handle_button, pattern='pixelate_'))
-    # Optional: Uncomment to log all updates
-    # application.add_handler(MessageHandler(None, log_all_updates), group=-1)
+    dispatcher.add_handler(MessageHandler(Filters.photo, handle_photo))
+    dispatcher.add_handler(CallbackQueryHandler(handle_button, pattern='pixelate_'))
     
     print("Bot starting...")
     print("Handlers registered: photo handler, callback handler")
-    application.run_polling()
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
