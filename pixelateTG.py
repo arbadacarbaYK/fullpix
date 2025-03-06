@@ -8,24 +8,22 @@ from telegram.ext import Updater, MessageHandler, Filters, CallbackContext
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-PIXELATION_FACTOR = os.getenv('PIXELATION_FACTOR')
+PIXELATION_FACTOR = 0.02  # Finer pixelation for artistic effect
 
 def process_image(photo_path, output_path):
     try:
         image = cv2.imread(photo_path)
         if image is None:
-            logger.error(f"Failed to read image: {photo_path}")
             return False
         
-        # Reduce and then enlarge the image for pixelation
         h, w = image.shape[:2]
-        small = cv2.resize(image, (max(1, int(w * PIXELATION_FACTOR)), max(1, int(h * PIXELATION_FACTOR))), interpolation=cv2.INTER_LINEAR)
-        pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_CUBIC)  # Use bicubic interpolation for finer details
-
+        small = cv2.resize(image, (int(w * PIXELATION_FACTOR), int(h * PIXELATION_FACTOR)), interpolation=cv2.INTER_LINEAR)
+        pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+        
         cv2.imwrite(output_path, pixelated)
         return True
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
+        print(f"Error processing image: {str(e)}")
         return False
 
 def handle_photo(update: Update, context: CallbackContext) -> None:
