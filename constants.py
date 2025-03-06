@@ -2,7 +2,7 @@ import cv2
 import random
 import numpy as np
 
-PIXELATION_FACTOR = 0.04
+PIXELATION_FACTOR = 0.02
 
 def detect_heads(image):
     height, width = image.shape[:2]
