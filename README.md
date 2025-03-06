@@ -1,1 +1,1 @@
-Telegram-Bot that pixels pictures sended to it
+Telegram-Bot that pixels pictures sent to it
