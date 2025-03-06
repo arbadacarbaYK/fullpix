@@ -8,7 +8,7 @@ from telegram.ext import Updater, MessageHandler, Filters, CallbackContext
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-PIXELATION_FACTOR = 0.1  # Finer pixelation for artistic effect
+PIXELATION_FACTOR =  os.getenv('PIXELATION_FACTOR')
 
 def process_image(photo_path, output_path):
     try:
