@@ -9,7 +9,7 @@ from constants import PIXELATION_FACTOR
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-PIXELATION_FACTOR = 0.02  # Finer pixelation for artistic effect
+PIXELATION_FACTOR = 0.1  # Finer pixelation for artistic effect
 
 def process_image(photo_path, output_path):
     try:
