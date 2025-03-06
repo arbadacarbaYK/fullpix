@@ -4,7 +4,6 @@ import numpy as np
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Updater, MessageHandler, Filters, CallbackContext
-from constants import PIXELATION_FACTOR
 
 # Load environment variables
 load_dotenv()
