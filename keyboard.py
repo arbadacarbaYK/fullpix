@@ -1,8 +1,13 @@
 import os
 import cv2
 import numpy as np
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+
+# Load environment variables
+load_dotenv()
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 # Store pending photos in a dictionary {chat_id: file_path}
 pending_photos = {}
@@ -121,8 +126,11 @@ def handle_button(update: Update, context: CallbackContext) -> None:
         print(f"Removed chat {chat_id} from pending_photos after failure")
 
 def main():
-    # Replace with your actual token
-    updater = Updater("YOUR_TELEGRAM_BOT_TOKEN_HERE", use_context=True)
+    if not TOKEN:
+        print("Error: TELEGRAM_BOT_TOKEN not found in .env")
+        return
+    
+    updater = Updater(TOKEN, use_context=True)
     dispatcher = updater.dispatcher
     
     dispatcher.add_handler(MessageHandler(Filters.photo, handle_photo))
