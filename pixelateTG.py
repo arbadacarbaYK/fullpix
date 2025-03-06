@@ -17,10 +17,10 @@ def process_image(photo_path, output_path):
             logger.error(f"Failed to read image: {photo_path}")
             return False
         
-        # Apply pixelation to the full image
+        # Reduce and then enlarge the image for pixelation
         h, w = image.shape[:2]
-        small = cv2.resize(image, (int(w * PIXELATION_FACTOR), int(h * PIXELATION_FACTOR)), interpolation=cv2.INTER_LINEAR)
-        pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+        small = cv2.resize(image, (max(1, int(w * PIXELATION_FACTOR)), max(1, int(h * PIXELATION_FACTOR))), interpolation=cv2.INTER_LINEAR)
+        pixelated = cv2.resize(small, (w, h), interpolation=cv2.INTER_CUBIC)  # Use bicubic interpolation for finer details
 
         cv2.imwrite(output_path, pixelated)
         return True
